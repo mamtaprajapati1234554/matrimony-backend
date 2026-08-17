@@ -22,4 +22,23 @@ const protect = asyncHandler(async (req, res, next) => {
   next();
 });
 
-module.exports = { protect };
+const optionalAuth = asyncHandler(async (req, res, next) => {
+  const authHeader = req.headers.authorization || '';
+  const [scheme, token] = authHeader.split(' ');
+
+  if (scheme === 'Bearer' && token) {
+    try {
+      const payload = verifyAccessToken(token);
+      const user = await User.findById(payload.sub);
+      if (user) {
+        req.user = user;
+      }
+    } catch (err) {
+      // Token galat/expired hai to bhi ignore karo
+    }
+  }
+
+  next();
+});
+
+module.exports = { protect, optionalAuth };
