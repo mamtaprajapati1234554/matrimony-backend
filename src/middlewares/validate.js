@@ -2,7 +2,10 @@ const ApiError = require('../utils/ApiError');
 
 function validate(schema, source = 'body') {
   return (req, res, next) => {
-    const dataToValidate = source === 'query' ? req.query : req.body;
+    let dataToValidate;
+    if (source === 'query') dataToValidate = req.query;
+    else if (source === 'params') dataToValidate = req.params;
+    else dataToValidate = req.body;
 
     const { error, value } = schema.validate(dataToValidate, {
       abortEarly: false,
@@ -14,11 +17,9 @@ function validate(schema, source = 'body') {
       return next(new ApiError(400, 'Validation failed', 'VALIDATION_ERROR', details));
     }
 
-    if (source === 'query') {
-      req.validatedQuery = value; // req.query ki jagah nayi property use kar rahe hain
-    } else {
-      req.body = value;
-    }
+    if (source === 'query') req.validatedQuery = value;
+    else if (source === 'params') req.params = value;
+    else req.body = value;
 
     return next();
   };

@@ -9,7 +9,6 @@ function parseExcel(buffer) {
   const firstSheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[firstSheetName];
 
-  // Sheet ko array-of-arrays me convert karo (har row ek array)
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
   return { type: 'rows', rows };

@@ -1,78 +1,248 @@
-const Profile = require('../models/Profile');
-const User = require('../models/User');
+const User = require("../models/User");
+const Profile = require("../models/Profile");
 
-async function searchProfiles(filters, currentUserId, currentUserGender) {
-    const {
-        ageMin, ageMax, heightMin, heightMax,
-        religion, caste, education, city, maritalStatus, gender,
-        page, limit
-    } = filters;
+const searchProfiles = async (filters, currentUserId) => {
+  const {
+    ageMin,
+    ageMax,
+    heightMin,
+    heightMax,
 
-    // STEP 1: User-side filters (gender, status, age, khud ko exclude karna)
-    const userQuery = { status: { $nin: ['suspended', 'deleted'] } };
+    religion,
+    caste,
+    motherTongue,
 
-    if (gender) {
-        // User ne khud gender filter bheja hai - usi ko priority do
-        userQuery.gender = gender;
-    } else if (currentUserGender) {
-        // User ne kuch nahi bheja, lekin login hai - automatically opposite gender dikhao
-        userQuery.gender = currentUserGender === 'male' ? 'female' : 'male';
-    }
-    if (currentUserId) userQuery._id = { $ne: currentUserId };
+    education,
+    occupation,
 
-    if (ageMin || ageMax) {
-        userQuery.dob = {};
-        if (ageMax) {
-            const minDob = new Date();
-            minDob.setFullYear(minDob.getFullYear() - ageMax - 1);
-            userQuery.dob.$gte = minDob;
-        }
-        if (ageMin) {
-            const maxDob = new Date();
-            maxDob.setFullYear(maxDob.getFullYear() - ageMin);
-            userQuery.dob.$lte = maxDob;
-        }
-    }
+    incomeMin,
+    incomeMax,
 
-    const matchingUsers = await User.find(userQuery).select('_id');
-    const userIds = matchingUsers.map((u) => u._id);
+    city,
+    state,
+    country,
 
-    // STEP 2: Profile-side filters
-    const profileQuery = { user: { $in: userIds } };
+    maritalStatus,
+    gender,
 
-    if (religion) profileQuery.religion = religion;
-    if (caste) profileQuery.caste = caste;
-    if (education) profileQuery.education = education;
-    if (city) profileQuery.city = city;
-    if (maritalStatus) profileQuery.maritalStatus = maritalStatus;
+    page = 1,
+    limit = 10
+  } = filters;
 
-    if (heightMin || heightMax) {
-        profileQuery.height = {};
-        if (heightMin) profileQuery.height.$gte = heightMin;
-        if (heightMax) profileQuery.height.$lte = heightMax;
-    }
+  // -----------------------------------------
+  // USER QUERY
+  // -----------------------------------------
 
-    // STEP 3: Pagination
-    const skip = (page - 1) * limit;
+  const userQuery = {};
 
-    const [results, total] = await Promise.all([
-        Profile.find(profileQuery)
-            .populate('user', 'name gender dob phone status')
-            .skip(skip)
-            .limit(limit)
-            .sort({ createdAt: -1 }),
-        Profile.countDocuments(profileQuery)
-    ]);
-
-    return {
-        results,
-        pagination: {
-            page,
-            limit,
-            total,
-            totalPages: Math.ceil(total / limit)
-        }
+  // Exclude current logged-in user
+  if (currentUserId) {
+    userQuery._id = {
+      $ne: currentUserId
     };
-}
+  }
 
-module.exports = { searchProfiles };
+  // Gender filter
+  if (gender) {
+    userQuery.gender = gender;
+  }
+
+  // -----------------------------------------
+  // AGE FILTER
+  // Age is calculated from DOB
+  // -----------------------------------------
+
+  if (ageMin || ageMax) {
+    const today = new Date();
+
+    userQuery.dob = {};
+
+    // Example:
+    // ageMin = 25
+    // User must not be younger than 25
+    if (ageMin !== undefined) {
+      const maxDob = new Date(
+        today.getFullYear() - Number(ageMin),
+        today.getMonth(),
+        today.getDate()
+      );
+
+      userQuery.dob.$lte = maxDob;
+    }
+
+    // Example:
+    // ageMax = 30
+    // User must not be older than 30
+    if (ageMax !== undefined) {
+      const minDob = new Date(
+        today.getFullYear() - Number(ageMax) - 1,
+        today.getMonth(),
+        today.getDate() + 1
+      );
+
+      userQuery.dob.$gte = minDob;
+    }
+  }
+
+  // Only active users
+  userQuery.status = "active";
+
+  // Don't show suspended users
+  userQuery.isSuspended = {
+    $ne: true
+  };
+
+  // Don't show deleted users
+  userQuery.isDeleted = {
+    $ne: true
+  };
+
+  // -----------------------------------------
+  // FIND USERS
+  // -----------------------------------------
+
+  const users = await User.find(userQuery)
+    .select("_id gender dob profileType")
+    .lean();
+
+  if (!users.length) {
+    return {
+      profiles: [],
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: 0,
+        totalPages: 0
+      }
+    };
+  }
+
+  const userIds = users.map((user) => user._id);
+
+  // -----------------------------------------
+  // PROFILE QUERY
+  // -----------------------------------------
+
+  const profileQuery = {
+    userId: {
+      $in: userIds
+    }
+  };
+
+  // Height
+  if (heightMin !== undefined || heightMax !== undefined) {
+    profileQuery.height = {};
+
+    if (heightMin !== undefined) {
+      profileQuery.height.$gte = Number(heightMin);
+    }
+
+    if (heightMax !== undefined) {
+      profileQuery.height.$lte = Number(heightMax);
+    }
+  }
+
+  // Religion
+  if (religion) {
+    profileQuery.religion = religion;
+  }
+
+  // Caste
+  if (caste) {
+    profileQuery.caste = caste;
+  }
+
+  // Mother Tongue
+  if (motherTongue) {
+    profileQuery.motherTongue = motherTongue;
+  }
+
+  // Education
+  if (education) {
+    profileQuery.education = education;
+  }
+
+  // Occupation
+  if (occupation) {
+    profileQuery.occupation = occupation;
+  }
+
+  // Annual Income
+  if (incomeMin !== undefined || incomeMax !== undefined) {
+    profileQuery.annualIncome = {};
+
+    if (incomeMin !== undefined) {
+      profileQuery.annualIncome.$gte = Number(incomeMin);
+    }
+
+    if (incomeMax !== undefined) {
+      profileQuery.annualIncome.$lte = Number(incomeMax);
+    }
+  }
+
+  // City
+  if (city) {
+    profileQuery.city = city;
+  }
+
+  // State
+  if (state) {
+    profileQuery.state = state;
+  }
+
+  // Country
+  if (country) {
+    profileQuery.country = country;
+  }
+
+  // Marital Status
+  if (maritalStatus) {
+    profileQuery.maritalStatus = maritalStatus;
+  }
+
+  // -----------------------------------------
+  // PAGINATION
+  // -----------------------------------------
+
+  const pageNumber = Number(page);
+  const limitNumber = Number(limit);
+
+  const skip = (pageNumber - 1) * limitNumber;
+
+  // -----------------------------------------
+  // FETCH PROFILES
+  // -----------------------------------------
+
+  const profiles = await Profile.find(profileQuery)
+    .skip(skip)
+    .limit(limitNumber)
+    .sort({
+      createdAt: -1
+    })
+    .lean();
+
+  // -----------------------------------------
+  // TOTAL COUNT
+  // -----------------------------------------
+
+  const total = await Profile.countDocuments(profileQuery);
+
+  // -----------------------------------------
+  // RETURN RESULT
+  // -----------------------------------------
+
+  return {
+    profiles,
+
+    pagination: {
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages: Math.ceil(total / limitNumber)
+    }
+  };
+};
+
+module.exports = {
+  searchProfiles
+};
